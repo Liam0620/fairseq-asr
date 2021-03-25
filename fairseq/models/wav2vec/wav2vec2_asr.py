@@ -378,12 +378,6 @@ class Wav2VecEncoder(FairseqEncoder):
                 )
                 w2v_args = state["args"]
             else:
-                # print('mli 11111',args)
-                if 'big' in args.w2v_path:
-                    args.w2v_path = 'examples/wav2vec/pretrained_models/wav2vec_vox.pt'
-                else:
-                    args.w2v_path = 'examples/wav2vec/pretrained_models/wav2vec_small.pt'
-                
                 state = checkpoint_utils.load_checkpoint_to_cpu(
                     args.w2v_path, arg_overrides
                 )
