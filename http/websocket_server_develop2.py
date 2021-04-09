@@ -145,46 +145,19 @@ class StatusHandler(ws.WebSocketHandler): #tornado.web.RequestHandler
     def open(self):
         self.simple_init()
         print('StatusHandler收到新的WebSocket连接',self.current_user)
-        if self.current_user=='ASR_server':
-            self.users[self.current_user] = self
-        else:
-            '''
-            global Uid_workers
-            if 'AI_station' in Uid_workers:
-                last_workers_available = Uid_workers['AI_station']
-                self.workers_available = last_workers_available
-                print('super_worker_available',self.workers_available)
-                Uid_workers['AI_station'] = last_workers_available
+        self.users[self.current_user] = self
 
-            self.users['AI_station'] = self
-            '''
-            self.users[self.current_user] = self
-
-    @gen.coroutine
     def on_message(self, recv_msg):
         global Uid_workers
         if self.current_user=='ASR_server':
             self.workers_available = int(recv_msg)
             result_d = {"num_workers_available": self.workers_available, "num_requests_processed": 11}
             result_j = json.dumps(result_d)
-            '''
-            Uid_workers['AI_station'] = self.workers_available
-            self.users['AI_station'].write_message(result_j)
-            '''
-
-
             for user in self.users.keys():
                 if user!='ASR_server':
                     Uid_workers[user]=self.workers_available
-                    try:
-                        self.users[user].write_message(result_j)
-                        #print('write_to_222222222222', user,result_j)
-                    except:
-                        print(user,'disconnected')
-
-
+                    self.users[user].write_message(result_j)
         try:
-            #workers_available = Uid_workers['AI_station']#Uid_workers[self.current_user]
             workers_available = Uid_workers[self.current_user]
         except Exception as e:
             workers_available =self.workers_available
@@ -192,12 +165,10 @@ class StatusHandler(ws.WebSocketHandler): #tornado.web.RequestHandler
         result_d = {"num_workers_available": workers_available, "num_requests_processed": 11}
         result_j = json.dumps(result_d)
         if self.current_user != 'ASR_server':
-            #print('recv_11111111111',recv_msg,result_j)
             self.write_message(result_j)
 
 
     def on_close(self):
-        print(time.asctime(time.localtime(time.time())), 'user:', self.current_user, 'disconnet')
         self.close()
 
     def check_origin(self, origin):
@@ -288,10 +259,11 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
         #self.recv_f = open(self.data_recv_path, 'w')
 
     def open(self):
-        self.last = time.time()
+
         self.simple_init()
         self.connect()
-        print('收到新的WebSocket连接',self.current_user)
+
+        print('收到新的WebSocket连接')
 
         self.users[self.current_user] = self  # 建立连接后添加用户到容器中
         self.loop = None
@@ -310,8 +282,6 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
             self.loop = tornado.ioloop.PeriodicCallback(self.write_to_client, 100,
                                                         io_loop=tornado.ioloop.IOLoop.instance())
             self.loop.start()
-            print('start PeriodicCallback loop')
-
     #'''
     @gen.coroutine
     def connect(self):
@@ -322,6 +292,9 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
         except Exception as e:
             #logging.error("connection error")
             print("connection error")
+        else:
+            #logging.info("connected slave server")
+            print("connected StatusHandler ws")
     #'''
 
 
@@ -443,6 +416,7 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
 
         if not self.Ws is None:
             self.Ws.close()
+            print('status handler ws closed')
 
     def check_origin(self, origin):
         return True

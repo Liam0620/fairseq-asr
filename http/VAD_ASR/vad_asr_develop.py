@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import numpy
 import copy
 import torch
@@ -9,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from VAD_ASR.utils import load_model,post_process,Byt2Arr
 from multiprocessing import Process, Queue
+import queue
 import time
 import logging
 import threading
@@ -25,12 +27,13 @@ class MyThread(Thread):
         self.func(**self.kwargs)
 
 class VAD_ASR_Module():
-    def __init__(self,model,min_speech_len,min_sil_len,asr_chunk_seconds, segment_duration,
+    def __init__(self,model,min_speech_len,min_sil_len,asr_chunk_seconds, segment_duration,step,
                  onset,right_buffer,left_buffer,use_cuda,generator,real_time,detail,repeat_beamsearch,max_decode_len):
         self.min_speech_len = min_speech_len/0.02
         self.min_sil_len = min_sil_len/0.02
         self.asr_chunk_seconds = asr_chunk_seconds
         self.segment_duration = segment_duration
+        self.step = step
         self.onset = onset
         self.use_cuda = use_cuda
         self.generator = generator
@@ -40,14 +43,17 @@ class VAD_ASR_Module():
         self.continuous_preds = []
         self.tmp_continuous_preds = []
         self.tmp_result = ''
+        self.realtime_tmp = ''
         self.asr_chunk_list = []
         self.mem_asr_chunk = None
         self.prev_status = 0
         self.sample_rate = 16000
-        self.asr_chunk_size = asr_chunk_seconds * self.sample_rate
+        self.asr_chunk_size = int(asr_chunk_seconds * self.sample_rate)
         self.vad_chunk_size = int(segment_duration * self.sample_rate)
-        self.left_buffer = int(self.sample_rate * left_buffer)
-        self.right_buffer = int(self.sample_rate * right_buffer)
+        self.step_size = int(step * self.sample_rate)
+
+        self.left_buffer = min(int(self.sample_rate * left_buffer),self.step_size)
+        self.right_buffer = min(int(self.sample_rate * right_buffer),self.step_size)
         self.vad_chunk_bytes = bytes("", 'utf-8')
         self.is_real_time = real_time
         self.cnn_frames = 320
@@ -56,7 +62,7 @@ class VAD_ASR_Module():
         self.thread_list = []
         self.current_process_num = 0
         self.is_wait = 0
-        self.max_vad_sz = 10240 * 2
+        self.max_vad_sz = self.step_size * 2
         self.data_split_sz = 2560 * 2
         self.min_process_len = 320 * 2
         self.is_processing = False
@@ -65,8 +71,14 @@ class VAD_ASR_Module():
         self.current_frame = 0
         self.is_speech = 0
         self.max_decode_len = max_decode_len/0.02
-        self.prev_batch = None
         self.max_seg_len = 30/0.02
+
+        # speed test
+
+
+        self.first_batch = 1
+        self.init_time = time.time()
+
 
     def open_asr(self,recv_msg,is_end):
         is_break = False
@@ -82,26 +94,35 @@ class VAD_ASR_Module():
                 if not self.is_processing:
                     self.process_T = MyThread(self.process, {'arg': None}, 'Process_Thread')
                     self.process_T.start()
-                if is_break:
-                    break
+
+                #if is_break:
+                #    break
         else:
             recv_info = {'data':recv_msg,'is_end':is_end}
             self.recv_queue.put(recv_info)
             if not self.is_processing:
                 self.process_T = MyThread(self.process, {'arg': None}, 'Process_Thread')
+                self.process_T.daemon = True
                 self.process_T.start()
 
+
     def process(self,arg=None):
-        while not self.recv_queue.empty():
-            self.is_processing = True
-            recv_info = self.recv_queue.get(block=False)
+        self.is_processing = True
+        while 1:
+            try:
+                recv_info = self.recv_queue.get()
+            except: #queue.Empty as e:
+                time.sleep(0.1)
+                recv_info = self.recv_queue.get()
             recv_msg = recv_info['data']
             is_end = recv_info['is_end']
             ret_msg = self.online_decoding(recv_msg, is_end)
             if ret_msg['text']:
                 self.result_queue.put(ret_msg)
-        self.is_processing = False
+            if is_end:
+                break
         return
+
 
     def get_result(self):
         if not self.result_queue.empty():
@@ -117,18 +138,40 @@ class VAD_ASR_Module():
         if not is_end:
             self.current_frame += len(recv_msg) / 2
             self.vad_chunk_bytes += recv_msg
+        else:
+            print('process final chunk')
+            send_msg,utt_length = self.process_final_chunk()# + '<->'
+            send_msg += '<->'
+            # get timeline of segment _by_mli
+            seg_start = (self.current_frame - utt_length) / self.sample_rate
+            seg_end = self.current_frame / self.sample_rate
+            segment = (seg_start, seg_end)
+
+            eos = True
+            print('final chunk',send_msg)
 
         if len(self.vad_chunk_bytes) >= self.vad_chunk_size * 2:
             audio_chunk = Byt2Arr(self.vad_chunk_bytes)
-            self.vad_chunk_bytes = bytes("", 'utf-8')
+            # sliding step by_mli
+            try:
+                self.last_hist_vad_chunk_len = self.hist_vad_chunk_len
+            except:
+                pass
+            self.vad_chunk_bytes = self.vad_chunk_bytes[self.step_size*2:]
+            self.hist_vad_chunk_len = int(len(self.vad_chunk_bytes)/2)
+
             batch = torch.from_numpy(audio_chunk).float().view(1, -1)
             if self.use_cuda:
                 device = torch.device("cuda:%s" % (self.device))
                 batch = batch.to(device)
-            if not self.prev_batch is None:
-                batch = torch.cat( (self.prev_batch,batch),1 )
 
             speech_seq = self.vad(batch)
+            if self.first_batch:
+                self.first_batch = 0
+            else:
+                speech_seq = speech_seq[int(self.last_hist_vad_chunk_len/self.cnn_frames):]
+                batch = batch[:,self.last_hist_vad_chunk_len:]
+
 
             if speech_seq.sum() < self.min_speech_len:
                 # silence chunk
@@ -158,27 +201,20 @@ class VAD_ASR_Module():
                         type = 'temp_result'
                     ret_msg = {'type': type, 'text': send_msg}
                     # get timeline of segment _by_mli
-                    if eos:
-                        ret_msg['segment']=segment
+                    #if eos:
+                    #    ret_msg['segment']=segment
                     return ret_msg
 
-        if is_end:
-            send_msg,utt_length = self.process_final_chunk()# + '<->'
-            send_msg += '<->'
-            # get timeline of segment _by_mli
-            seg_start = (self.current_frame - utt_length) / self.sample_rate
-            seg_end = self.current_frame / self.sample_rate
-            segment = (seg_start, seg_end)
 
-            eos = True
+
         if eos:
             type = 'final_result'
         else:
             type = 'temp_result'
         ret_msg = {'type': type, 'text': send_msg}
         # get timeline of segment _by_mli
-        if eos:
-            ret_msg['segment'] = segment
+        #if eos:
+        #    ret_msg['segment'] = segment
         return ret_msg
 
     def vad(self,batch):
@@ -203,7 +239,6 @@ class VAD_ASR_Module():
         send_msg = ''
         eou = False
         utt_length = None
-        self.prev_batch = None
         if self.prev_status:
             if len(self.asr_chunk_list) > 0:
                 self.asr_chunk_list.append(batch[:, :self.right_buffer])
@@ -220,6 +255,7 @@ class VAD_ASR_Module():
             self.continuous_preds = []
             self.tmp_continuous_preds = []
             self.tmp_result = ''
+            self.realtime_tmp = ''
             self.mem_asr_chunk = None
 
         self.prev_status = 0
@@ -228,15 +264,16 @@ class VAD_ASR_Module():
     def process_spk_chunk(self,batch):
         send_msg = ''
         self.asr_chunk_list.append(batch)
-        self.prev_batch = None
         eos = False
         asr_chunk = torch.cat(self.asr_chunk_list, 1)
         self.prev_status = 1
+        #'''
         if len(self.asr_chunk_list) == 1 and self.prev_status == 0 and self.is_real_time:
             tmp_asr_out = self.asr(asr_chunk, mid_result=True)
             tmp_hyps = self.tmp_decode(tmp_asr_out, self.generator)
             if tmp_hyps:
                 send_msg = tmp_hyps
+        #'''
 
         if asr_chunk.size(1) >= self.asr_chunk_size + self.right_buffer:
 
@@ -290,9 +327,19 @@ class VAD_ASR_Module():
                     self.tmp_result += hyps+' '
                     hyps = self.tmp_result
 
+                self.realtime_tmp = hyps
+                #print(22222, self.realtime_tmp)
+
                 if hyps:
                     send_msg = hyps
 
+        else:
+            if self.is_real_time and len(self.asr_chunk_list)>1:
+                tmp_asr_out = self.asr(asr_chunk, mid_result=True)
+                tmp_hyps = self.tmp_decode(tmp_asr_out, self.generator)
+                if tmp_hyps:
+                    send_msg = self.realtime_tmp + tmp_hyps
+                    #print(33333333,self.realtime_tmp,tmp_hyps)
         return send_msg,eos
 
     def process_chunk(self,batch,speech_seq):
@@ -335,6 +382,7 @@ class VAD_ASR_Module():
                     self.continuous_preds = []
                     self.tmp_continuous_preds = []
                     self.tmp_result = ''
+                    self.realtime_tmp = ''
                     self.mem_asr_chunk = None
 
                 else:
@@ -356,6 +404,7 @@ class VAD_ASR_Module():
                         self.continuous_preds = []
                         self.tmp_continuous_preds = []
                         self.tmp_result = ''
+                        self.realtime_tmp = ''
                         self.mem_asr_chunk = None
 
                     self.prev_status = 0
