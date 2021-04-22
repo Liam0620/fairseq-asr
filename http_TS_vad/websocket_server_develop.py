@@ -255,7 +255,8 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
         cls.max_users = max_users_per_device*len(devices)
         cls.max_users_per_device = max_users_per_device
         cls.vad_asr_args = vad_asr_args
-        cls.data_save_path = '/data3/mli2/vad_asr_recv_data'
+        cls.data_save_path = '/data3/mli2/fairseq-asr/http_TS_vad/audioAnalysis/audio'
+        cls.result_path = '/data3/mli2/fairseq-asr/http_TS_vad/audioAnalysis/data'
         cls.num_available_devices = 1
         cls.Url = Url
         return cls
@@ -280,11 +281,13 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
                                                  real_time=self.realtime,repeat_beamsearch=self.reat_bs,max_decode_len=self.max_decode_len)
 
         self.audio = bytes("", 'utf-8')
-        self.result_path = os.path.join(self.data_save_path,str(self.get_current_user()))
+        #self.result_path = os.path.join(self.data_save_path,str(self.get_current_user()))
         #os.makedirs(self.result_path,exist_ok=True)
-        self.audio_path = os.path.join(self.result_path, '%s.wav' % (str(self.get_current_user())))
-        self.data_recv_path = os.path.join(self.result_path, '%s.txt' % (str(self.get_current_user())))
+        self.audio_path = os.path.join(self.data_save_path, '%s.wav' % (str(self.get_current_user())))
+        #self.data_recv_path = os.path.join(self.result_path, '%s.txt' % (str(self.get_current_user())))
         #self.recv_f = open(self.data_recv_path, 'w')
+        self.result_file = os.path.join(self.result_path,'%s.json'%(str(self.get_current_user())))
+        self.result_dict = {'audio_path':self.audio_path,'result':[]}
 
     def open(self):
         self.last = time.time()
@@ -343,7 +346,7 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
                 #bytes_int = int.from_bytes(recv_msg,byteorder='big',signed=False)
                 #bytes_int = np.frombuffer(recv_msg, dtype=np.int32)
                 #self.recv_f.write(str(bytes_int) + ' ' +str(len(bytes_int)) +'\n')
-                #self.audio += recv_msg
+                self.audio += recv_msg
                 #self.recv_f.write(str(len(recv_msg))+' ')
             else:
                 print('receive EOT',self.current_user)
@@ -406,6 +409,7 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
             self.last = time.time()
             if msg['type']=='final_result':
                 print('sentence:' + msg['text'] + ' from:' + self.current_user + '\n')
+                self.result_dict['result'].append(msg)
 
             ret_msg = json.dumps(msg,ensure_ascii=False)
             try:
@@ -445,7 +449,30 @@ class web_socket_handler(ws.WebSocketHandler,ExecutorBase,Model_Manager):
 
             #if self.model_id is not None:
             #    assert self.current_user not in self.models[self.model_id]['users']
+            audiosegment = AudioSegment(data=self.audio, sample_width=2, frame_rate=16000,channels=1)
+            audiosegment.export(self.audio_path, format='wav')
+            final_result = []
+            for i, item in enumerate(self.result_dict['result']):
+                if i == 0:
+                    if item['start'] > 0:
+                        final_result.append({'text': '<NTS>', 'start': 0, 'end': item['start']})
+                    del item['type']
+                    final_result.append(item)
+                else:
+                    prev_seg_end = self.result_dict['result'][i - 1]['end']
+                    start = item['start']
+                    if start < prev_seg_end:
+                        final_result[-1]['end'] = start
+                        item['start'] = prev_seg_end
+                        prev_seg_end = start
 
+                    if item['start'] > prev_seg_end:
+                        final_result.append({'text': '<NTS>', 'start': prev_seg_end, 'end': item['start']})
+                    del item['type']
+                    final_result.append(item)
+            self.result_dict['result'] = final_result
+            # print(self.result_dict)
+            save_json(self.result_file, self.result_dict)
 
             print('current users online:', len(self.users), self.users.keys())
             for k,v in self.models.items():

@@ -42,7 +42,7 @@ class MyClient(WebSocketClient):
                 params = wf.getparams()
                 nchannels, sampwidth, framerate, nframes = params[:4]
                 data = wf.readframes(nframes)# * 10
-                CHUNK = 3200
+                CHUNK = 2800
                 #print(len(data))
                 for i in range(0, len(data), CHUNK):
                     audio_chunk = data[i:i + CHUNK]
@@ -67,31 +67,7 @@ class MyClient(WebSocketClient):
         t = threading.Thread(target=send_data_to_ws)
         t.start()
 
-    def received_message(self, m):
 
-        print("22222:" +  str(m),time.time()-self.time)
-        self.time = time.time()
-        try:
-            jsonObj = json.loads(str(m))
-            self.final_hyps = str(jsonObj['text'])
-            if str(m).find("<->") != -1:
-                self.close()
-        except:
-            print("error:" + str(m))
-        #print >> sys.stderr, "RESPONSE:", response
-        #print >> sys.stderr, "JSON was:", m
-
-
-
-    def get_full_hyp(self, timeout=60):
-        return self.final_hyp_queue.get(timeout)
-
-    def closed(self, code, reason=None):
-        print("Websocket closed() called")
-        #print >> sys.stderr
-        self.final_hyp_queue.put(self.final_hyps)
-
-    '''
     def received_message(self, m):
         if str(m).strip():
             print("22222:" + str(m), time.time() - self.time)
@@ -128,25 +104,24 @@ class MyClient(WebSocketClient):
         print("Websocket closed() called")
         #print >> sys.stderr
         self.final_hyp_queue.put(self.final_hyps)
-    '''
+
+
 def main():
     #'''
     starttime = datetime.datetime.now()
-    cur_file = '/data3/mli2/asr_vad/miss_example.wav'
+    cur_file = '/data3/mli2/fairseq-asr/http_TS_vad/audioAnalysis/audio/mli.wav'
     # ws = MyClient(cur_file, 'ws://172.18.30.90:6008/server/speech/realtime?uid=%s&realtime=False'%f, byterate=16000)
     #if 1:
     #for i in range(70):
-    while 1:
-        print('_____________'*3)
-        ws = MyClient(cur_file,
-                      'ws://172.18.30.90:4015/server/speech/realtime?uid=%s&realtime=False' % (
-                              'mli' + str(random.randint(0, 1000000))), byterate=16000)
-        ws.connect()
-        result = ws.get_full_hyp()
+    ws = MyClient(cur_file,
+                  'ws://172.18.30.90:5009/server/speech/realtime?uid=%s&realtime=True' % (
+                          'mli'), byterate=16000) #+ str(random.randint(0, 1000000))
+    ws.connect()
+    result = ws.get_full_hyp()
 
     endtime = datetime.datetime.now()
     print("time:" + str((endtime - starttime).seconds))
-    sys.exit()
+    #sys.exit()
     #'''
     '''
     ref_path = '/data3/mli2/work/ref.txt'
@@ -181,77 +156,71 @@ def main():
     sys_command = "wer %s %s" % (ref_path, hyp_path)
     os.system(sys_command)
     sys.exit()
-    '''
-
+    
+    
     starttime = datetime.datetime.now()
-    set = 'wxrecord_16k'
-    port = 5011
+    set = 'xsh_real_8k'
     rootdir = "/data3/mli2/test_asr/test/%s"%set #"/data/syzhou/work/data/tmp/test/ztspeech_16k"  #"/data3/mli2/test_asr/test/ztspeech_16k"
     source_sr = rootdir.split('_')[-1]
     text_path = os.path.join(rootdir, 'text')
     text_dict = {}
-    ref_path = 'test_hyps_refs/%s.ref' % set
-    hyp_path = 'test_hyps_refs/%s.hyp' % set
+    ref_path = 'test_hyps_refs_med/%s.ref' % set
+    hyp_path = 'test_hyps_refs_med/%s.hyp' % set
     ref_f = open(ref_path,'w')
     hyp_f = open(hyp_path,'w')
 
-    tsv_path = "/data3/mli2/test_asr/test/test_%s.tsv"%set
-    ltr_path = "/data3/mli2/test_asr/test/test_%s.ltr"%set
+    with open(text_path, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            id = line.split(' ')[0]
+            text = line.split(' ')[1:]
+            text = ' '.join(list(''.join(text).replace(' ', '').replace('[NOISE]', '').strip()))
+            text_ref = text.upper() + ' ' + id + '\n'
+            text_dict[id]=text_ref
 
-    tsv_f = open(tsv_path,'r')
-    ltr_f = open(ltr_path,'r')
-
-    lines_tsv = tsv_f.readlines()
-    lins_ltr = ltr_f.readlines()
-
-    tsv_f.close()
-    ltr_f.close()
-
-    for i,line in enumerate(lines_tsv):
-        text = lins_ltr[i].strip().replace(' ','')
-        text = ' '.join(list(text))
-        file_path = line.split('\t')[0]
-        cur_file = os.path.join('/data3/mli2/test_asr/test',file_path)
-        if cur_file[-4:] == '.wav':
-            if source_sr == '8k':
-                print('8k_to_16k', cur_file)
-                src_sig, sr = sf.read(cur_file)  # name是要 输入的wav 返回 src_sig:音频数据  sr:原采样频率
-                if sr != 16000:
-                    dst_sig = librosa.resample(src_sig, sr, 16000)  # resample 入参三个 音频数据 原采样频率 和目标采样频率
-                    sf.write(cur_file, dst_sig, 16000)  #
-            id = 'None-%s'%i
-            if 1:
-                print(cur_file, id)
-                # cur_file = '/data3/mli2/asr_vad/miss_example.wav'
-                ws = MyClient(cur_file, 'ws://172.18.30.90:%s/server/speech/realtime?uid=%s&realtime=False' % (port,id),
-                              byterate=16000)
-
-                ws.connect()
-
-                result = ws.get_concat_hyp()
-                hyp = result.replace('<->', '')
-                while 'Error' in hyp:
-                    ws.closed(hyp)
-                    print('111111111ERROR',cur_file, id)
-                    # cur_file = '/data3/mli2/asr_vad/miss_example.wav'
-                    ws = MyClient(cur_file, 'ws://172.18.30.90:%s/server/speech/realtime?uid=%s&realtime=False' % (port,id),
-                                  byterate=16000)
-                    # ws = MyClient(cur_file, 'ws://172.18.30.90:4004/?id=%s&datatype=wav&sr=16000&lang=ma' % f,
+    for root, dirs, files in os.walk(rootdir):
+        for f in files:
+            cur_file = os.path.join(root,f)
+            if cur_file[-4:]=='.wav':
+                if source_sr == '8k':
+                    print('8k_to_16k',cur_file)
+                    src_sig, sr = sf.read(cur_file)  # name是要 输入的wav 返回 src_sig:音频数据  sr:原采样频率
+                    if sr != 16000:
+                        dst_sig = librosa.resample(src_sig, sr, 16000)  # resample 入参三个 音频数据 原采样频率 和目标采样频率
+                        sf.write(cur_file, dst_sig, 16000)  #
+                id = f.replace('.wav','')
+                if id in text_dict:
+                    print(cur_file,id)
+                    #cur_file = '/data3/mli2/asr_vad/miss_example.wav'
+                    ws = MyClient(cur_file, 'ws://172.18.30.90:5006/server/speech/realtime?uid=%s&realtime=False'%f, byterate=16000)
+                    #ws = MyClient(cur_file, 'ws://172.18.30.90:4004/?id=%s&datatype=wav&sr=16000&lang=ma' % f,
                     #              byterate=16000)
                     ws.connect()
-                    time.sleep(0.2)
-                    result = ws.get_concat_hyp()
-                    hyp = result.replace('<->', '')
 
-                # '''
-                if 'Error' not in hyp:
-                    hyp = hyp.upper() + ' ' + '(' + id + ')' + '\n'
-                    ref = text.upper() + ' ' + '(' + id + ')' + '\n'
-                    hyp_f.write(hyp)
-                    ref_f.write(ref)
-                    print('hyp:', hyp, 'ref:', ref)
-                ws.closed('close')
-                time.sleep(0.2)
+                    result = ws.get_concat_hyp()
+                    hyp = result.replace('<->','')
+                    while 'Error' in hyp:
+                        ws.closed(hyp)
+                        print(cur_file, id)
+                        # cur_file = '/data3/mli2/asr_vad/miss_example.wav'
+                        ws = MyClient(cur_file,'ws://172.18.30.90:5006/server/speech/realtime?uid=%s&realtime=False' % f,byterate=16000)
+                        #ws = MyClient(cur_file, 'ws://172.18.30.90:4004/?id=%s&datatype=wav&sr=16000&lang=ma' % f,
+                        #              byterate=16000)
+                        ws.connect()
+                        time.sleep(0.1)
+                        result = ws.get_concat_hyp()
+                        hyp = result.replace('<->', '')
+
+                    
+                    if hyp and ('Error' not in hyp):
+                        hyp = hyp.upper() + ' '+ id + '\n'
+                        ref = text_dict[id]
+                        hyp_f.write(hyp)
+                        ref_f.write(ref)
+                        print('hyp:',hyp,'ref:',ref)
+                    ws.closed('close')
+                    time.sleep(0.1)
+                    
 
     ref_f.close()
     hyp_f.close()
@@ -260,6 +229,7 @@ def main():
     os.system(sys_command)
     endtime = datetime.datetime.now()
     print("time:" + str((endtime - starttime).seconds))
+    '''
 
 if __name__ == "__main__":
     main()

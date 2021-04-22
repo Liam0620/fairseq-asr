@@ -58,9 +58,6 @@ def load_model(filename, arg_overrides=None, task=None,is_large_model=False):
         args.w2v_path2 = 'kd_model/checkpoint_last.pt.nokd'
         args.w2v_path = 'kd_model/w2v_base/checkpoint_last.pt'
 
-        #args.w2v_path2 = '/data3/mli2/mli/fairseq-master/kd_model/checkpoint_last.pt.nokd.with_fake_med.20210414.2'
-        #args.w2v_path = '/data3/mli2/mli/fairseq-master/examples/wav2vec/pretrained_models/libri960_big.pt'
-
     if task is None:
         task = tasks.setup_task(args)
     model = task.build_model(args)
