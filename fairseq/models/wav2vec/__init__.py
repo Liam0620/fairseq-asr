@@ -6,4 +6,11 @@
 from .wav2vec import *  # noqa
 from .wav2vec2 import *  # noqa
 from .wav2vec2_asr import *  # noqa
+from .wav2vec2_classifier import *  # noqa
 from .wav2vec2_classifier_vad import *  # noqa
+from .wav2vec2_classifier_vad_v2 import *  # noqa
+from .wav2vec2_classifier_vad_v3 import *  # noqa
+from .wav2vec2_classifier_vad_scd import *  # noqa
+from .wav2vec2_classifier_TS_vad import *  # noqa
+from .wav2vec2_classifier_TS_vad_v1 import *  # noqa
+from .wav2vec2_classifier_vad_sid import *  # noqa

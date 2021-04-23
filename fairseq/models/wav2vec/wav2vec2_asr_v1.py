@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import sys
-import os
 import contextlib
 import copy
 import math
@@ -372,27 +371,11 @@ class Wav2VecEncoder(FairseqEncoder):
             "feature_grad_mult": args.feature_grad_mult,
         }
 
-        if 'encoder_attention_heads' in args:
-            arg_overrides['encoder_attention_heads'] = args.encoder_attention_heads
-
         if getattr(args, "w2v_args", None) is None:
-            #args.w2v_path = 'examples/wav2vec/pretrained_models/wav2vec_small.pt'
-            if os.path.exists(args.w2v_path):
-                state = checkpoint_utils.load_checkpoint_to_cpu(
-                    args.w2v_path, arg_overrides
-                )
-                w2v_args = state["args"]
-            else:
-                #print('mli 11111',args)
-                if 'big' in args.w2v_path:
-                    args.w2v_path = 'examples/wav2vec/pretrained_models/libri960_big.pt'
-                else:
-                    args.w2v_path = 'examples/wav2vec/pretrained_models/wav2vec_small.pt'
-                state = checkpoint_utils.load_checkpoint_to_cpu(
-                    args.w2v_path, arg_overrides
-                )
-                w2v_args = state["args"]
-
+            state = checkpoint_utils.load_checkpoint_to_cpu(
+                args.w2v_path, arg_overrides
+            )
+            w2v_args = state["args"]
         else:
             state = None
             w2v_args = args.w2v_args
@@ -513,7 +496,7 @@ class Wav2VecEncoder2(FairseqEncoder):
 
         if state is not None and not args.no_pretrained_weights:
             model.load_state_dict(state["model"], strict=True)
-            
+
         model.remove_pretraining_modules()
 
         super().__init__(task.source_dictionary)

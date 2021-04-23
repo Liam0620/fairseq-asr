@@ -27,6 +27,7 @@ class AddTargetDataset(BaseWrapperDataset):
         #_id = item['id']
         #item["label"] = self.get_label(_id)
         item["label"] = self.get_label(index)
+        #print(5555555,_id,item,self.labels[_id])
         #sys.exit()
         return item
 
@@ -72,7 +73,8 @@ class AddTargetDataset_ts(BaseWrapperDataset):
         #item["label"] = self.get_label(_id)
         #item["label"] = self.get_label(index)
         if item['task']=='vad':
-            item["label"] = item['ts_label']
+            item["label"] = self.get_label(index)
+            item["ts_label"] = item['ts_label']
         else:
             item["label"] = self.get_label(index)
 
@@ -93,10 +95,15 @@ class AddTargetDataset_ts(BaseWrapperDataset):
         collated["net_input"]["input_embeddings"] = input_embeddings
 
         target = [s["label"] for s in samples if s["id"] in indices]
+        target_ts = [s["ts_label"] for s in samples if s["id"] in indices]
+
         if self.batch_targets:
             collated["target_lengths"] = torch.LongTensor([len(t) for t in target])
             target = data_utils.collate_tokens(target, pad_idx=self.pad, left_pad=False)
+            target_ts = data_utils.collate_tokens(target_ts, pad_idx=self.pad, left_pad=False)
+
         collated["target"] = target
+        collated["target_ts"] = target_ts
         if self.add_to_input:
             eos = target.new_full((target.size(0), 1), self.eos)
             collated["target"] = torch.cat([target, eos], dim=-1)

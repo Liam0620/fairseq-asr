@@ -32,7 +32,7 @@ class LabelEncoder(object):
 
 
 @register_task("audio_mtl_ts")
-class Audio_MTL_PredictionTask_ts(FairseqTask):
+class Audio_MTL_PredictionTask_TS(FairseqTask):
     """
 
     """
@@ -101,12 +101,14 @@ class Audio_MTL_PredictionTask_ts(FairseqTask):
             default=None,
             help="extension of the noise files to load, if any",
         )
+
         parser.add_argument(
             "--ts-path",
             type=str,
             default=None,
             help="extension of the target embeddings to load, if any",
         )
+
     def __init__(self, args, source_dictionary=None):
         super().__init__(args)
         self._target_dictionary = None
@@ -205,8 +207,9 @@ class Audio_MTL_PredictionTask_ts(FairseqTask):
                     min_sample_size = self.args.min_sample_size
                 else:
                     max_sample_size = self.args.max_sample_size
-                    min_sample_size = None
-
+                    min_sample_size = self.args.min_sample_size
+                    #if (split=='valid' and 'vad' in dataset) or 'vad_MIX' in dataset:
+                    #    max_sample_size=88888
 
                 dataset_map[dataset] = FileAudioDataset_ts(
                     manifest,

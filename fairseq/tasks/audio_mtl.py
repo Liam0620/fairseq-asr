@@ -204,7 +204,7 @@ class Audio_MTL_PredictionTask(FairseqTask):
 
 
                 dataset_map[dataset] = FileAudioDataset(
-                    manifest,
+                    manifest_path=manifest,
                     sample_rate=self.args.sample_rate,
                     max_sample_size=max_sample_size,
                     min_sample_size=min_sample_size if not self.args.no_min_cropping else max_sample_size,

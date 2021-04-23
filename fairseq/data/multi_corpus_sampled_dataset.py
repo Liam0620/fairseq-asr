@@ -24,6 +24,13 @@ def uniform_sampler(x):
             return 'asr_ami'
     if 'asr_none' in x:
         x.remove('asr_none')
+    if 'asr_KD_none' in x:
+        x.remove('asr_KD_none')
+        if 'vad_noise_TSP' in x:
+            x.remove('vad_noise_TSP')
+            if np.random.rand()<0.1:
+                return 'vad_noise_TSP'
+        return np.random.choice(x, 1).item()
     return np.random.choice(x, 1).item()
 
 class MultiCorpusSampledDataset(FairseqDataset):

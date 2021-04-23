@@ -16,8 +16,8 @@ from fairseq.data.data_utils import post_process
 
 from fairseq.logging.meters import safe_round
 
-@register_criterion('mtl_ts_vad_only')
-class MTL_TS_VAD_only(FairseqCriterion):
+@register_criterion('mtl_ts_vad_only_v1')
+class MTL_TS_VAD_only_v1(FairseqCriterion):
 
     def __init__(self, task, sentence_avg=None,class_num=None):
         super().__init__(task)
@@ -39,6 +39,7 @@ class MTL_TS_VAD_only(FairseqCriterion):
 
         #self.criterion_ts_vad =  nn.CrossEntropyLoss(weight=torch.FloatTensor([2,1,1])) #weight=torch.FloatTensor([2,1,1])
         self.criterion_ts_vad = WPL_loss(weights=[1,1,0.1])
+        self.contrastive_loss = ContrastiveLoss(margin=0.7)
         #print(2222, 'wpl loss')
 
     def forward(self, model, sample, reduce=True):
@@ -58,37 +59,26 @@ class MTL_TS_VAD_only(FairseqCriterion):
         net_output = model(**sample['net_input'])
 
         logits_vad = net_output['encoder_seq_out']
+        features = net_output['features']
+        ts_embedding = net_output['ts_embedding']
+
         ori_targets = model.get_targets(sample, net_output)
         ts_targets = sample["target_ts"]
         non_padding_mask = ~net_output["padding_mask"]
         input_lengths = non_padding_mask.long().sum(-1)
         #targets = ts_targets.expand(logits_vad.size(0), logits_vad.size(1))
         targets = ts_targets
-        '''
-        if ori_targets.size(1) == 1:
 
-            pad_index = torch.tensor([self.pad_idx], dtype=torch.int32, device=ori_targets.device)
-            paddings = pad_index.expand(logits_vad.size(0), logits_vad.size(1))
-            targets = paddings.clone()
-            for i in range(len(targets)):
-                targets[i, 0:input_lengths[i].cpu().numpy()] = ts_targets[i]
-            print('11111', targets,targets.size())
-        else:
-            targets = ori_targets.clone() - self.NS_idx + 1
-            for i in range(len(targets)):
-                if ts_targets[i] == 0:
-                    # print(ts_targets[i])
-                    targets[i, :][targets[i, :] == 1] = ts_targets[i]
-            print(22222222)
-            #print('hkust', targets)
-        '''
         targets = targets.contiguous().view(-1).long()
         # targets = model.get_targets(sample, net_output).view(-1).long()
+        lprobs = F.softmax(logits_vad, dim=-1, dtype=torch.float32)
+
 
         if vad:
-            loss = self.criterion_ts_vad(logits_vad.view(-1, logits_vad.size(-1)), targets)
+            loss_ts_vad = self.criterion_ts_vad(logits_vad.view(-1, logits_vad.size(-1)), targets)
+            contrasitive_loss = self.contrastive_loss(features.contiguous().view(-1, features.size(-1)), ts_embedding.contiguous().view(-1, ts_embedding.size(-1)), targets)
 
-
+            loss = loss_ts_vad + contrasitive_loss
         else:
             print('batch error', targets)
             sys.exit()
@@ -204,6 +194,23 @@ def accuracy(output, target, topk=(1,)):
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
+
+class ContrastiveLoss(torch.nn.Module):
+    """
+    Contrastive loss function.
+    Based on: http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+    """
+
+    def __init__(self, margin=0.7):
+        super(ContrastiveLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, output1, output2, label):
+        label = label.clone()
+        label[label>0] = 1
+        cosine_similarity = F.cosine_similarity(output1, output2)
+        loss_contrastive = torch.mean((1-label) * cosine_similarity +(label) * torch.clamp(self.margin - cosine_similarity, min=0.0))
+        return loss_contrastive
 
 class WPL_loss(nn.Module):
     def __init__(self,weights=[1,1,0.1]):

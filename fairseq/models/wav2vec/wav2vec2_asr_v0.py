@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import sys
-import os
 import contextlib
 import copy
 import math
@@ -372,27 +371,11 @@ class Wav2VecEncoder(FairseqEncoder):
             "feature_grad_mult": args.feature_grad_mult,
         }
 
-        if 'encoder_attention_heads' in args:
-            arg_overrides['encoder_attention_heads'] = args.encoder_attention_heads
-
         if getattr(args, "w2v_args", None) is None:
-            #args.w2v_path = 'examples/wav2vec/pretrained_models/wav2vec_small.pt'
-            if os.path.exists(args.w2v_path):
-                state = checkpoint_utils.load_checkpoint_to_cpu(
-                    args.w2v_path, arg_overrides
-                )
-                w2v_args = state["args"]
-            else:
-                #print('mli 11111',args)
-                if 'big' in args.w2v_path:
-                    args.w2v_path = 'examples/wav2vec/pretrained_models/libri960_big.pt'
-                else:
-                    args.w2v_path = 'examples/wav2vec/pretrained_models/wav2vec_small.pt'
-                state = checkpoint_utils.load_checkpoint_to_cpu(
-                    args.w2v_path, arg_overrides
-                )
-                w2v_args = state["args"]
-
+            state = checkpoint_utils.load_checkpoint_to_cpu(
+                args.w2v_path, arg_overrides
+            )
+            w2v_args = state["args"]
         else:
             state = None
             w2v_args = args.w2v_args
@@ -513,7 +496,7 @@ class Wav2VecEncoder2(FairseqEncoder):
 
         if state is not None and not args.no_pretrained_weights:
             model.load_state_dict(state["model"], strict=True)
-            
+
         model.remove_pretraining_modules()
 
         super().__init__(task.source_dictionary)
@@ -535,22 +518,7 @@ class Wav2VecEncoder2(FairseqEncoder):
             self.proj = None
             self.proj2 = None
             self.re_proj = None
-        num_final_layers = 1
-        self.final_layers = nn.ModuleList([])
-        self.final_layers.extend([
-            TransformerSentenceEncoderLayer(
-                embedding_dim=w2v_args.encoder_embed_dim,
-                ffn_embedding_dim=w2v_args.encoder_ffn_embed_dim,
-                num_attention_heads=w2v_args.encoder_attention_heads,
-                dropout=w2v_args.dropout,
-                attention_dropout=w2v_args.attention_dropout,
-                activation_dropout=w2v_args.activation_dropout,
-                activation_fn=w2v_args.activation_fn,
-                layer_norm_first=w2v_args.layer_norm_first,
-            )
-            for _ in range(num_final_layers)
-        ])
-        '''
+
         self.final_encoder_layer = TransformerSentenceEncoderLayer(
                     embedding_dim=w2v_args.encoder_embed_dim,
                     ffn_embedding_dim=w2v_args.encoder_ffn_embed_dim,
@@ -561,7 +529,7 @@ class Wav2VecEncoder2(FairseqEncoder):
                     activation_fn=w2v_args.activation_fn,
                     layer_norm_first=w2v_args.layer_norm_first,
                     )
-        '''
+
 
     def set_num_updates(self, num_updates):
         """Set the number of parameters updates."""
@@ -589,11 +557,10 @@ class Wav2VecEncoder2(FairseqEncoder):
         if self.proj:
             x = self.proj(x_fe)
             x_emb = self.re_proj(x)
-            #contextual_x
-            #x_emb = x_fe
-            for layer in self.final_layers:
-                x_emb,_ = layer(x_emb)
-            final_x = x_emb + x_fe
+
+            contextual_x,_ = self.final_encoder_layer(x_emb)
+
+            final_x = contextual_x + x_fe
             final_x = self.proj2(final_x)
 
         return {

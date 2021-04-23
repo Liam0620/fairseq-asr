@@ -424,6 +424,7 @@ class Wav2Vec2Model(BaseFairseqModel):
             )
             mask_indices = torch.from_numpy(mask_indices).to(x.device)
             x[mask_indices] = self.mask_emb
+
         else:
             mask_indices = None
 
@@ -536,12 +537,14 @@ class Wav2Vec2Model(BaseFairseqModel):
                 features = self.feature_extractor(source)
 
 
+
         features_pen = features.float().pow(2).mean()
 
         features = features.transpose(1, 2)
-        features = self.layer_norm(features)
+
+        #features = self.layer_norm(features)
+
         unmasked_features = features
-        #print('feature encoder', features.size())
 
         if padding_mask is not None:
             extra = padding_mask.size(1) % features.size(1)
@@ -549,10 +552,12 @@ class Wav2Vec2Model(BaseFairseqModel):
                 padding_mask = padding_mask[:, :-extra]
             padding_mask = padding_mask.view(padding_mask.size(0), features.size(1), -1)
             padding_mask = padding_mask.all(-1)
-
+        #print(1111,self.args)
         cnn_features = features
         if stage=='cnn_only':
             return {"x": None, "x_vad": cnn_features, "padding_mask": padding_mask}
+
+        features = self.layer_norm(features)
 
         if self.post_extract_proj is not None:
             features = self.post_extract_proj(features)
@@ -681,6 +686,14 @@ class Wav2Vec2Model(BaseFairseqModel):
             return res["x"],res["x_vad"], res["padding_mask"]
         return res["x"], res["padding_mask"]
 
+    def extract_features_no_cnn(self,source):
+        features = self.layer_norm(source)
+        if self.post_extract_proj is not None:
+            features = self.post_extract_proj(features)
+        x = features
+        x = self.encoder(x, padding_mask=None)
+        return x
+
     def get_logits(self, net_output):
         logits = net_output["x"]
         logits = logits.transpose(0, 2)
@@ -796,7 +809,6 @@ class ConvFeatureExtractionModel(nn.Module):
 class TransformerEncoder(nn.Module):
     def __init__(self, args):
         super().__init__()
-
         self.dropout = args.dropout
         self.embedding_dim = args.encoder_embed_dim
 
@@ -1114,7 +1126,6 @@ def base_architecture(args):
     args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 3072)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 12)
-
     args.activation_fn = getattr(args, "activation_fn", "gelu")
 
     args.dropout = getattr(args, "dropout", 0.1)
