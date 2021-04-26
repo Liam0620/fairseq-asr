@@ -42,7 +42,7 @@ class MyClient(WebSocketClient):
                 params = wf.getparams()
                 nchannels, sampwidth, framerate, nframes = params[:4]
                 data = wf.readframes(nframes)# * 10
-                CHUNK = 2800
+                CHUNK = 3200
                 #print(len(data))
                 for i in range(0, len(data), CHUNK):
                     audio_chunk = data[i:i + CHUNK]
@@ -67,22 +67,17 @@ class MyClient(WebSocketClient):
         t = threading.Thread(target=send_data_to_ws)
         t.start()
 
-
     def received_message(self, m):
-        if str(m).strip():
-            print("22222:" + str(m), time.time() - self.time)
-            self.time = time.time()
-            try:
-                jsonObj = json.loads(str(m))
-                self.final_hyps = str(jsonObj['text'])
-                #self.final_hyps=str(m)
-                if str(jsonObj['type']) == 'final_result' and "<->" not in self.final_hyps:
-                    self.final_hyp_queue.put(self.final_hyps)
 
-                if str(m).find("<->") != -1:
-                    self.close()
-            except:
-                print("error:" + str(m))
+        print("22222:" +  str(m),time.time()-self.time)
+        self.time = time.time()
+        try:
+            jsonObj = json.loads(str(m))
+            self.final_hyps = str(jsonObj['text'])
+            if str(m).find("<->") != -1:
+                self.close()
+        except:
+            print("error:" + str(m))
         #print >> sys.stderr, "RESPONSE:", response
         #print >> sys.stderr, "JSON was:", m
 
@@ -91,31 +86,23 @@ class MyClient(WebSocketClient):
     def get_full_hyp(self, timeout=60):
         return self.final_hyp_queue.get(timeout)
 
-    def get_concat_hyp(self,timeout=30):
-        hyp=''
-        while 1:
-            new = self.final_hyp_queue.get(timeout)
-            hyp+=new
-            if '<->' in hyp:
-                break
-        return hyp
-
     def closed(self, code, reason=None):
         print("Websocket closed() called")
         #print >> sys.stderr
         self.final_hyp_queue.put(self.final_hyps)
 
 
+
 def main():
     #'''
     starttime = datetime.datetime.now()
-    cur_file = '/data3/mli2/fairseq-asr/http_TS_vad/audioAnalysis/audio/mli.wav'
+    cur_file = '/data3/mli2/fairseq-asr/http_TS_vad/audioAnalysis/audio/mli_cheny.wav'
     # ws = MyClient(cur_file, 'ws://172.18.30.90:6008/server/speech/realtime?uid=%s&realtime=False'%f, byterate=16000)
     #if 1:
     #for i in range(70):
     ws = MyClient(cur_file,
-                  'ws://172.18.30.90:5009/server/speech/realtime?uid=%s&realtime=True' % (
-                          'mli'), byterate=16000) #+ str(random.randint(0, 1000000))
+                  'ws://172.18.30.90:5009/server/speech/realtime?uid=%s&realtime=False' % (
+                          'mli_cheny2'), byterate=16000) #+ str(random.randint(0, 1000000))
     ws.connect()
     result = ws.get_full_hyp()
 

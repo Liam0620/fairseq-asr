@@ -2,7 +2,7 @@
 #lm_path=/data/syzhou/kd_model/general0.6_GVHD0.2_medicine0.2_v1.arpa.5gram
 #/data/syzhou/kd_model/general0.4_medicine0.1_shenwai0.5_v1.arpa.5gram
 
-model_path=/data3/mli2/mli/fairseq-master/examples/wav2vec/exp/TS_VAD_only_noise_KD/checkpoint_best.pt
+model_path=/data3/mli2/mli/fairseq-master/examples/wav2vec/exp/TS_VAD_only_noise_KD_WPL/checkpoint_mixsim_last.pt
 lm_path=/data/syzhou/kd_model/general0.4_medicine0.1_shenwai0.5_v1.arpa.5gram
 #wav2vec2_big_finetune_CN17000_char/model/general0.5_lbk0.1_medicine0.4__v1.arpa.5gram
 lexicon_path=kd_model/lexicon.txt
@@ -39,7 +39,7 @@ python http_TS_vad/websocket_server_develop.py None \
         --lm-model $lm_path --lm-weight 0.46 --word-score 0 \
         --sil-weight 0 --criterion ctc --labels ltr --max-tokens 4000000 \
         --post-process letter --lexicon $lexicon_path --beam 20 --use-cuda True \
-        --min-speech 0.1 --min-silence 0.15 --speech-onset 0.75 \
+        --min-speech 0.3 --min-silence 0.1 --speech-onset 0.6 \
         --chunk-size 2 --asr-chunk-size 10 --step 0.5 \
         --address 172.18.30.90 --port 5009 --devices 2 --max-users-per-device 2
 #BLOCK

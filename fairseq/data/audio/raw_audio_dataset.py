@@ -377,36 +377,37 @@ class FileAudioDataset_ts(RawAudioDataset):
                     if len(rand_wav)>self.sample_rate:
                         rand_wav = rand_wav[self.sample_rate:]
                     rand_wav_len = len(rand_wav)
-                    if random.random()<0.5:
-                        ovp_len = random.randint(0,8000)
+                    if random.random() < 0.5:
+                        ovp_len = random.randint(0, 8000)
                         tgt_len = wav_len + rand_wav_len - ovp_len
-                        pad_wav = np.pad(wav, (0, tgt_len-wav_len), 'constant', constant_values=(0, 0))
-                        pad_rand_wav = np.pad(rand_wav, (tgt_len-rand_wav_len, 0), 'constant', constant_values=(0, 0))
-                        wav = pad_wav+pad_rand_wav
+                        pad_wav = np.pad(wav, (0, tgt_len - wav_len), 'constant', constant_values=(0, 0))
+                        pad_rand_wav = np.pad(rand_wav, (tgt_len - rand_wav_len, 0), 'constant', constant_values=(0, 0))
+                        wav = pad_wav + pad_rand_wav
 
-                        rand_start = random.randint(0,wav_len-3200)
-                        rand_end = rand_start+self.max_sample_size
+                        rand_start = random.randint(0, min(wav_len - 3200, len(wav) - self.max_sample_size))
+                        rand_end = rand_start + self.max_sample_size
                         wav = wav[rand_start:rand_end]
+                        assert len(wav) == self.max_sample_size
                         tgt_st = 0
-                        tgt_ed = min(self.max_sample_size,wav_len - rand_start)
+                        tgt_ed = min(self.max_sample_size, wav_len - rand_start)
 
 
                     else:
                         ovp_len = random.randint(0, 8000)
                         tgt_len = wav_len + rand_wav_len - ovp_len
-                        pad_wav = np.pad(wav, (tgt_len - wav_len,0), 'constant', constant_values=(0, 0))
-                        pad_rand_wav = np.pad(rand_wav, (0,tgt_len - rand_wav_len), 'constant', constant_values=(0, 0))
+                        pad_wav = np.pad(wav, (tgt_len - wav_len, 0), 'constant', constant_values=(0, 0))
+                        pad_rand_wav = np.pad(rand_wav, (0, tgt_len - rand_wav_len), 'constant', constant_values=(0, 0))
                         wav = pad_wav + pad_rand_wav
 
-                        rand_end = random.randint(rand_wav_len+3200,len(wav))
+                        rand_end = max(self.max_sample_size, random.randint(rand_wav_len + 3200, len(wav)))
                         rand_start = rand_end - self.max_sample_size
                         wav = wav[rand_start:rand_end]
-                        tgt_st = max(0,rand_wav_len - rand_start-ovp_len)
+                        assert len(wav) == self.max_sample_size
+                        tgt_st = max(0, rand_wav_len - rand_start - ovp_len)
                         tgt_ed = self.max_sample_size
 
-
-                    tgt_seg_dict = {'start': tgt_st/self.sample_rate, 'end': tgt_ed/self.sample_rate}
-                    feats_len = (len(wav)-320)//320
+                    tgt_seg_dict = {'start': tgt_st / self.sample_rate, 'end': tgt_ed / self.sample_rate}
+                    feats_len = (len(wav) - 320) // 320
                     ts_ys = np.ones(feats_len, dtype=np.int64)
 
                     segment = Segment.from_json(tgt_seg_dict)
@@ -416,6 +417,7 @@ class FileAudioDataset_ts(RawAudioDataset):
                         ts_ys[i:j] = 0
 
                     ts_label = torch.from_numpy(ts_ys)
+                    assert ts_label.size(0)==100
 
             elif cur_spk not in self.speaker_embeddings.keys():
                 random_spk = random.choice(list(self.speaker_embeddings.keys()))

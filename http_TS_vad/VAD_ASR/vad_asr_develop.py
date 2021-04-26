@@ -60,7 +60,7 @@ class VAD_ASR_Module():
         self.result_queue = Queue(maxsize=0)
         self.recv_queue = Queue(maxsize=0)
         self.thread_list = []
-        self.current_process_num = 0
+        self.batch_cnt = 0
         self.is_wait = 0
         self.max_vad_sz = self.step_size * 2
         self.data_split_sz = 2560 * 2
@@ -79,7 +79,7 @@ class VAD_ASR_Module():
         self.first_batch = 1
         self.init_time = time.time()
 
-        embedding_path = '/data3/mli2/fairseq-asr/http_TS_vad/speakers/syzhou/syzhou.npy'
+        embedding_path = '/data3/mli2/fairseq-asr/http_TS_vad/speakers/limeng/limeng.npy'
         sp_emb = np.load(embedding_path)
         self.ts_embedding = torch.from_numpy(sp_emb)
         print(1111111,embedding_path)
@@ -169,12 +169,24 @@ class VAD_ASR_Module():
                 batch = batch.to(device)
                 ts_embedding = self.ts_embedding.to(device)
 
-            speech_seq = self.vad(batch,ts_embedding)
+            speech_logits = self.vad(batch, ts_embedding)
             if self.first_batch:
                 self.first_batch = 0
+                current_step_logits = speech_logits[:,:int(self.step_size / self.cnn_frames),:]
+                self.prev_logits = copy.deepcopy(speech_logits)
+
             else:
-                speech_seq = speech_seq[int(self.last_hist_vad_chunk_len/self.cnn_frames):]
-                batch = batch[:,self.last_hist_vad_chunk_len:]
+                current_step_logits = speech_logits[:,:int(self.step_size / self.cnn_frames),:] + self.prev_logits[:,int(self.step_size / self.cnn_frames):int(self.step_size*2 / self.cnn_frames),:]
+                part_prev_logits = self.prev_logits[:,int(self.step_size / self.cnn_frames):,:]
+                pad_zeros = torch.zeros(
+                                        [current_step_logits.size(0), speech_logits.size(1)-part_prev_logits.size(1), current_step_logits.size(2)]
+                                        , dtype=part_prev_logits.dtype, device=part_prev_logits.device)
+                part_prev_logits = torch.cat(( part_prev_logits,pad_zeros), 1)
+                self.prev_logits = copy.deepcopy(speech_logits)+part_prev_logits
+
+                batch = batch[:, :int(self.step_size)]
+
+            speech_seq = self.vad_score(current_step_logits)
 
 
             if speech_seq.sum() < self.min_speech_len:
@@ -182,7 +194,7 @@ class VAD_ASR_Module():
                 send_msg,eos,utt_length = self.process_sil_chunk(batch)
                 # get timeline of segment _by_mli
                 if eos:
-                    seg_end = self.current_frame
+                    seg_end = self.current_frame-self.hist_vad_chunk_len - self.min_sil_len*self.cnn_frames
                     seg_start = seg_end - utt_length
                     segment = (max(0, seg_start)/ self.sample_rate, seg_end/ self.sample_rate)
 
@@ -195,7 +207,7 @@ class VAD_ASR_Module():
                     send_msg, eos, utt_length, end_frame,indent = infos
                     # get timeline of segment _by_mli
                     if eos:
-                        seg_end = self.current_frame+ end_frame
+                        seg_end = self.current_frame+ end_frame-self.hist_vad_chunk_len- self.min_sil_len*self.cnn_frames
                         seg_start = seg_end - utt_length - indent
                         segment = (seg_start/ self.sample_rate, seg_end/ self.sample_rate)
 
@@ -226,12 +238,20 @@ class VAD_ASR_Module():
     def vad(self,batch,input_embeddings):
         encoder_inp1 = {'source': batch, 'padding_mask': None,'input_embeddings':input_embeddings}
         net_output = self.model(**encoder_inp1, stage='cnn_only')
-        seq_label = net_output['encoder_seq_out']
-        lprobs = F.log_softmax(seq_label, dim=-1, dtype=torch.float32)
+        logits = net_output['encoder_seq_out']
+        return logits
+        #lprobs = F.log_softmax(logits, dim=-1, dtype=torch.float32)
+        #data = lprobs.view(-1, lprobs.size(2))
+        #data = torch.exp(data[:, 0])
+        #speech_seq = (data > self.onset).long().cpu().numpy()
+        #return speech_seq
+    def vad_score(self,logits):
+        lprobs = F.log_softmax(logits, dim=-1, dtype=torch.float32)
         data = lprobs.view(-1, lprobs.size(2))
         data = torch.exp(data[:, 0])
         speech_seq = (data > self.onset).long().cpu().numpy()
         return speech_seq
+
 
     def asr(self,asr_chunk,mid_result=False):
         encoder_inp = {'source': asr_chunk, 'padding_mask': None}
@@ -245,10 +265,12 @@ class VAD_ASR_Module():
         send_msg = ''
         eou = False
         utt_length = None
+        #print(11111, batch.size())
         if self.prev_status:
             if len(self.asr_chunk_list) > 0:
                 self.asr_chunk_list.append(batch[:, :self.right_buffer])
                 asr_chunk = torch.cat(self.asr_chunk_list, 1)
+                #print(22222,asr_chunk.size())
                 asr_out = self.asr(asr_chunk)
                 self.continuous_preds.append(asr_out)
             hyps,_ = self.decode(self.continuous_preds, self.generator)
